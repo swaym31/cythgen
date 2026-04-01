@@ -11,12 +11,12 @@ from pydantic import BaseModel
 # Config
 # ─────────────────────────────────────────────────────────────────────────────
 
-GDRIVE_ID = "10ophvoiEuPtqAszNEIU5pVfqRuvalRf4"
-CKPT_PATH = "best.pt"
+GDRIVE_ID = "12Wian1P7qUjnYE3mX3omyMiD_LyZHY1c"
+CKPT_PATH = "best_slim.pt"
 device    = torch.device("cpu")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Model definition
+# Model definition (ch=32)
 # ─────────────────────────────────────────────────────────────────────────────
 
 CHUNK_TYPE_TO_ID = {"bases": 0, "1b1s": 1, "1b2s": 2}
@@ -83,7 +83,7 @@ class ConditionEmbed(nn.Module):
         return self.proj(torch.cat([b, s1, s2, t], dim=1))
 
 class ResEncoder(nn.Module):
-    def __init__(self, latent_dim=128, cond_dim=256, ch=64):
+    def __init__(self, latent_dim=128, cond_dim=256, ch=32):
         super().__init__()
         self.stem  = nn.Conv2d(1, ch, 3, padding=1)
         self.down1 = nn.Sequential(ResBlock(ch),   nn.Conv2d(ch,   ch*2, 4, 2, 1))
@@ -112,7 +112,7 @@ class ResEncoder(nn.Module):
         return self.mu(h), self.logvar(h)
 
 class ResDecoder(nn.Module):
-    def __init__(self, latent_dim=128, cond_dim=256, ch=64):
+    def __init__(self, latent_dim=128, cond_dim=256, ch=32):
         super().__init__()
         self.ch  = ch
         feat_dim = ch * 8 * 16 * 16
@@ -142,7 +142,7 @@ class ResDecoder(nn.Module):
         return self.out(h)
 
 class ResCVAE(nn.Module):
-    def __init__(self, latent_dim=128, emb_dim=32, cond_dim=256, ch=64):
+    def __init__(self, latent_dim=128, emb_dim=32, cond_dim=256, ch=32):
         super().__init__()
         self.cond_net   = ConditionEmbed(emb_dim=emb_dim, cond_dim=cond_dim)
         self.enc        = ResEncoder(latent_dim=latent_dim, cond_dim=cond_dim, ch=ch)
@@ -156,7 +156,7 @@ class ResCVAE(nn.Module):
         return self.dec(z, c), mu, logvar
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Lazy model loader — loads on first request, not at startup
+# Lazy model loader
 # ─────────────────────────────────────────────────────────────────────────────
 
 _model = None
@@ -166,15 +166,13 @@ def get_model():
     if _model is not None:
         return _model
 
-    # Download weights if not present
     if not os.path.exists(CKPT_PATH):
-        print("Downloading best.pt from Google Drive...")
+        print("Downloading best_slim.pt from Google Drive...")
         gdown.download(id=GDRIVE_ID, output=CKPT_PATH, quiet=False)
         print("Download complete.")
 
-    # Load model
     print("Loading model...")
-    m = ResCVAE(latent_dim=128, emb_dim=32, cond_dim=256, ch=64).to(device)
+    m = ResCVAE(latent_dim=128, emb_dim=32, cond_dim=256, ch=32).to(device)
     ckpt = torch.load(CKPT_PATH, map_location=device)
     m.load_state_dict(ckpt["model_state"])
     m.eval()
