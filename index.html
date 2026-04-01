@@ -461,9 +461,8 @@ async function convert() {
       headers:{"Content-Type":"application/json"},
       body: JSON.stringify({name: raw}),
       signal: controller.signal
-  });
-clearTimeout(timeout);
     });
+    clearTimeout(timeout);
     if(!resp.ok) throw new Error(resp.status);
     const data = await resp.json();
     note.textContent = "";
