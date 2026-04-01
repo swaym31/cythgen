@@ -8,16 +8,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Auto-download model weights from Google Drive if not present
+# Config
 # ─────────────────────────────────────────────────────────────────────────────
 
 GDRIVE_ID = "10ophvoiEuPtqAszNEIU5pVfqRuvalRf4"
 CKPT_PATH = "best.pt"
-
-if not os.path.exists(CKPT_PATH):
-    print("Downloading best.pt from Google Drive...")
-    gdown.download(id=GDRIVE_ID, output=CKPT_PATH, quiet=False)
-    print("Download complete.")
+device    = torch.device("cpu")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Model definition
@@ -160,20 +156,31 @@ class ResCVAE(nn.Module):
         return self.dec(z, c), mu, logvar
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Load model
+# Lazy model loader — loads on first request, not at startup
 # ─────────────────────────────────────────────────────────────────────────────
 
-device = torch.device("cpu")
-model  = ResCVAE(latent_dim=128, emb_dim=32, cond_dim=256, ch=64).to(device)
+_model = None
 
-if os.path.exists(CKPT_PATH):
+def get_model():
+    global _model
+    if _model is not None:
+        return _model
+
+    # Download weights if not present
+    if not os.path.exists(CKPT_PATH):
+        print("Downloading best.pt from Google Drive...")
+        gdown.download(id=GDRIVE_ID, output=CKPT_PATH, quiet=False)
+        print("Download complete.")
+
+    # Load model
+    print("Loading model...")
+    m = ResCVAE(latent_dim=128, emb_dim=32, cond_dim=256, ch=64).to(device)
     ckpt = torch.load(CKPT_PATH, map_location=device)
-    model.load_state_dict(ckpt["model_state"])
-    print("Model loaded successfully.")
-else:
-    print("WARNING: best.pt not found.")
-
-model.eval()
+    m.load_state_dict(ckpt["model_state"])
+    m.eval()
+    _model = m
+    print("Model ready.")
+    return _model
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Chunking
@@ -244,9 +251,10 @@ def tensor_to_b64(t):
 def generate_chunk(chunk_str, threshold=0.5):
     base, s1, s2, chunk_type = parse_chunk(chunk_str)
     base_t, s1_t, s2_t, type_t = make_cond(base, s1, s2, chunk_type)
-    c    = model.cond_net(base_t, s1_t, s2_t, type_t)
-    z    = torch.zeros(1, model.latent_dim, device=device)
-    xhat = model.dec(z, c)
+    m    = get_model()
+    c    = m.cond_net(base_t, s1_t, s2_t, type_t)
+    z    = torch.zeros(1, m.latent_dim, device=device)
+    xhat = m.dec(z, c)
     img  = (torch.sigmoid(xhat).cpu() > threshold).float()
     return img[0, 0]
 
@@ -273,7 +281,7 @@ def root():
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "model_loaded": os.path.exists(CKPT_PATH)}
+    return {"status": "ok", "model_loaded": _model is not None}
 
 @app.post("/generate")
 def generate(req: GenerateRequest):
