@@ -452,12 +452,17 @@ async function convert() {
     return;
   }
 
-  note.textContent = "generating…";
+  note.textContent = "generating… (first request may take up to 60 seconds)";
   try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 120000); // 2 min timeout
     const resp = await fetch(HF_API, {
       method:"POST",
       headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({name: raw})
+      body: JSON.stringify({name: raw}),
+      signal: controller.signal
+  });
+clearTimeout(timeout);
     });
     if(!resp.ok) throw new Error(resp.status);
     const data = await resp.json();
